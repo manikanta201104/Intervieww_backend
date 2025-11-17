@@ -8,7 +8,7 @@ const app = express();
 
 const EXTENSION_ID = process.env.EXTENSION_ID || ''; // e.g., 'abcdefghijklmnopqrstu...'
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const HF_API_URL = 'https://api-inference.huggingface.co/models/';
+const HF_API_URL = 'https://router.huggingface.co/hf-inference';
 const HF_API_KEY = process.env.HF_API_KEY;
 
 if (!HF_API_KEY) {
@@ -65,31 +65,36 @@ app.post('/api/ask', async (req, res) => {
   }
 
   try {
-    const hfResp = await fetch(HF_API_URL + encodeURIComponent(model), {
+    const requestBody = {
+      model: model,
+      inputs: prompt,
+    };
+    const hfResp = await fetch(HF_ROUTER_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${HF_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ inputs: prompt }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!hfResp.ok) {
       const text = await hfResp.text().catch(() => '');
-      return res.status(hfResp.status).json({ error: text || 'Hugging Face error' });
+      return res.status(hfResp.status).json({ error: text || 'Hugging Face router API error' });
     }
 
     const data = await hfResp.json();
-    const answer = Array.isArray(data)
-      ? data[0]?.generated_text || JSON.stringify(data)
-      : data.generated_text || data.answer || JSON.stringify(data);
+
+    // Router response varies by model; adapt extracting text accordingly
+    const answer = data?.generated_text || data?.result || JSON.stringify(data);
 
     return res.json({ answer });
   } catch (err) {
-    console.error('Error calling Hugging Face:', err);
+    console.error('Error calling Hugging Face router API:', err);
     return res.status(500).json({ error: err?.message || 'Upstream error' });
   }
 });
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
