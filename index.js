@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -6,13 +5,13 @@ const fetch = require('node-fetch');
 
 const app = express();
 
-const EXTENSION_ID = process.env.EXTENSION_ID || ''; // e.g., 'abcdefghijklmnopqrstu...'
+const EXTENSION_ID = process.env.EXTENSION_ID || '';
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const HF_API_URL = 'https://router.huggingface.co/hf-inference';
 const HF_API_KEY = process.env.HF_API_KEY;
+const HF_ROUTER_URL = 'https://router.huggingface.co/hf-inference';
 
 if (!HF_API_KEY) {
-  console.warn('[WARN] HF_API_KEY is not set. Requests to Hugging Face will fail.');
+  console.warn('[WARN] HF_API_KEY is not set. Requests will fail.');
 }
 
 const allowedOrigins = new Set(
