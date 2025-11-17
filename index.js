@@ -1,20 +1,38 @@
+// server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
 
-const allowedOrigins = [
-  'chrome-extension://ajjmepcekhdackpjobdgodpknmalabck', // Change to your extension ID
-];
+const EXTENSION_ID = process.env.EXTENSION_ID || ''; // e.g., 'abcdefghijklmnopqrstu...'
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const HF_API_URL = 'https://api-inference.huggingface.co/models/';
+const HF_API_KEY = process.env.HF_API_KEY;
 
+if (!HF_API_KEY) {
+  console.warn('[WARN] HF_API_KEY is not set. Requests to Hugging Face will fail.');
+}
+
+const allowedOrigins = new Set(
+  EXTENSION_ID ? [`chrome-extension://${EXTENSION_ID}`] : []
+);
+
+// Use cors() primarily; also handle OPTIONS early
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+
+  if (origin && allowedOrigins.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (NODE_ENV !== 'production') {
+    // Permissive in dev to make local testing easy
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
   }
@@ -23,22 +41,31 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-const HF_API_URL = 'https://api-inference.huggingface.co/models/'; // base endpoint
-const HF_API_KEY = process.env.HF_API_KEY; // Set this on your server env securely
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 app.post('/api/ask', async (req, res) => {
-  const { question, model = 'meta-llama/Llama-2-7b-chat-hf', promptTemplate } = req.body;
+  const {
+    question,
+    model = 'meta-llama/Llama-2-7b-chat-hf',
+    promptTemplate,
+  } = req.body || {};
 
-  if (!question) {
+  if (!question || typeof question !== 'string') {
     return res.status(400).json({ error: 'No question provided.' });
   }
 
   const prompt = promptTemplate
-    ? promptTemplate.replace('{question}', question)
+    ? String(promptTemplate).replace('{question}', question)
     : `Answer the following interview question very concisely:\n${question}`;
 
+  if (!HF_API_KEY) {
+    return res.status(500).json({ error: 'HF_API_KEY not configured on server.' });
+  }
+
   try {
-    const response = await fetch(HF_API_URL + model, {
+    const hfResp = await fetch(HF_API_URL + encodeURIComponent(model), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${HF_API_KEY}`,
@@ -47,24 +74,29 @@ app.post('/api/ask', async (req, res) => {
       body: JSON.stringify({ inputs: prompt }),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: text });
+    if (!hfResp.ok) {
+      const text = await hfResp.text().catch(() => '');
+      return res.status(hfResp.status).json({ error: text || 'Hugging Face error' });
     }
 
-    const data = await response.json();
+    const data = await hfResp.json();
     const answer = Array.isArray(data)
       ? data[0]?.generated_text || JSON.stringify(data)
       : data.generated_text || data.answer || JSON.stringify(data);
 
-    res.json({ answer });
-  } catch (error) {
-    console.error('Error calling Hugging Face:', error);
-    res.status(500).json({ error: error.message });
+    return res.json({ answer });
+  } catch (err) {
+    console.error('Error calling Hugging Face:', err);
+    return res.status(500).json({ error: err?.message || 'Upstream error' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Proxy server listening on port ${PORT}`);
+  if (EXTENSION_ID) {
+    console.log(`Allowed extension origin: chrome-extension://${EXTENSION_ID}`);
+  } else {
+    console.log('No EXTENSION_ID set; using permissive CORS in non-production.');
+  }
 });
