@@ -60,11 +60,16 @@ app.post('/api/ask', async (req, res) => {
     return res.status(500).json({ error: 'HF_API_KEY not configured on server.' });
   }
   try {
-    // Updated: Include /models/${model} in the URL for the Router API
-    const hfUrl = `https://router.huggingface.co/hf-inference/models/${model}`;
+    // New: OpenAI-compatible chat completions endpoint
+    const hfUrl = 'https://router.huggingface.co/v1/chat/completions';
     const requestBody = {
-      inputs: prompt,
-      // Optional: Add parameters like max_new_tokens: 200, temperature: 0.7 for better control
+      model: model,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 200,  // Limit response length for conciseness
+      temperature: 0.1, // Low for focused, deterministic answers
+      stream: false,
     };
     const hfResp = await fetch(hfUrl, {
       method: 'POST',
@@ -76,14 +81,15 @@ app.post('/api/ask', async (req, res) => {
     });
     if (!hfResp.ok) {
       const text = await hfResp.text().catch(() => '');
-      return res.status(hfResp.status).json({ error: text || 'Hugging Face router API error' });
+      console.error('HF API error details:', hfResp.status, text); // Log for Render dashboard
+      return res.status(hfResp.status).json({ error: text || 'Hugging Face API error' });
     }
     const data = await hfResp.json();
-    // Updated: HF returns an array for text-generation; extract from [0]
-    const answer = data[0]?.generated_text || data?.result || JSON.stringify(data);
+    // New: Extract from choices array
+    const answer = data?.choices?.[0]?.message?.content || JSON.stringify(data);
     return res.json({ answer });
   } catch (err) {
-    console.error('Error calling Hugging Face router API:', err);
+    console.error('Error calling Hugging Face API:', err);
     return res.status(500).json({ error: err?.message || 'Upstream error' });
   }
 });
