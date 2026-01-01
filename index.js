@@ -17,7 +17,6 @@ const allowedOrigins = new Set(
   EXTENSION_ID ? [`chrome-extension://${EXTENSION_ID}`] : []
 );
 
-// CORS setup
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
@@ -36,13 +35,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: "10mb" })); // Important: allow large base64 audio
+app.use(express.json());
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Existing /api/ask for AI answers
+// Only keep this one — for AI answers
 app.post("/api/ask", async (req, res) => {
   const {
     question,
@@ -96,59 +95,8 @@ app.post("/api/ask", async (req, res) => {
   }
 });
 
-// NEW: /api/transcribe for remote audio (tabCapture → Whisper)
-app.post("/api/transcribe", async (req, res) => {
-  const { audioBase64 } = req.body;
-
-  if (!audioBase64 || typeof audioBase64 !== "string") {
-    return res.status(400).json({ error: "No audioBase64 provided." });
-  }
-
-  if (!HF_API_KEY) {
-    return res.status(500).json({ error: "HF_API_KEY not configured." });
-  }
-
-  try {
-    // Using Whisper small – fast and accurate for English speech
-    const hfUrl = "https://api-inference.huggingface.co/models/openai/whisper-small";
-
-    const response = await fetch(hfUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${HF_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        inputs: audioBase64, // Base64-encoded audio (webm/opus)
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      console.error("Whisper error:", response.status, errorText);
-      return res.status(response.status).json({ error: "Transcription failed", details: errorText });
-    }
-
-    const data = await response.json();
-    const transcript = data.text?.trim() || "";
-
-    if (!transcript) {
-      return res.json({ transcript: "" }); // Empty but valid
-    }
-
-    console.log("Transcribed from remote audio:", transcript);
-    return res.json({ transcript });
-  } catch (err) {
-    console.error("Transcription server error:", err);
-    return res.status(500).json({ error: "Internal transcription error" });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
-  console.log(`Endpoints: /api/ask (AI) and /api/transcribe (Whisper)`);
-  if (EXTENSION_ID) {
-    console.log(`Allowed origin: chrome-extension://${EXTENSION_ID}`);
-  }
+  console.log(`Only /api/ask endpoint active (clean and simple)`);
 });
