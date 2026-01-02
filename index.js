@@ -35,32 +35,29 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Only keep this one — for AI answers
 app.post("/api/ask", async (req, res) => {
   const {
     question,
     model = "Qwen/Qwen2.5-7B-Instruct",
     promptTemplate,
   } = req.body || {};
-
   if (!question || typeof question !== "string") {
     return res.status(400).json({ error: "No question provided." });
   }
-
   const prompt = promptTemplate
     ? String(promptTemplate).replace("{question}", question)
     : `Answer the following interview question very concisely:\n${question}`;
-
   if (!HF_API_KEY) {
-    return res.status(500).json({ error: "HF_API_KEY not configured on server." });
+    return res
+      .status(500)
+      .json({ error: "HF_API_KEY not configured on server." });
   }
-
   try {
     const hfUrl = "https://router.huggingface.co/v1/chat/completions";
     const requestBody = {
@@ -70,7 +67,6 @@ app.post("/api/ask", async (req, res) => {
       temperature: 0.1,
       stream: false,
     };
-
     const hfResp = await fetch(hfUrl, {
       method: "POST",
       headers: {
@@ -79,15 +75,15 @@ app.post("/api/ask", async (req, res) => {
       },
       body: JSON.stringify(requestBody),
     });
-
     if (!hfResp.ok) {
       const text = await hfResp.text().catch(() => "");
       console.error("HF API error details:", hfResp.status, text);
-      return res.status(hfResp.status).json({ error: text || "Hugging Face API error" });
+      return res
+        .status(hfResp.status)
+        .json({ error: text || "Hugging Face API error" });
     }
-
     const data = await hfResp.json();
-    const answer = data?.choices?.[0]?.message?.content || "No answer generated.";
+    const answer = data?.choices?.[0]?.message?.content || JSON.stringify(data);
     return res.json({ answer });
   } catch (err) {
     console.error("Error calling Hugging Face API:", err);
@@ -95,8 +91,47 @@ app.post("/api/ask", async (req, res) => {
   }
 });
 
+// /api/transcribe for remote audio
+app.post("/api/transcribe", async (req, res) => {
+  const { audioBase64 } = req.body || {};
+  if (!audioBase64 || typeof audioBase64 !== "string") {
+    return res.status(400).json({ error: "No audioBase64 provided." });
+  }
+  if (!HF_API_KEY) {
+    return res.status(500).json({ error: "HF_API_KEY not configured." });
+  }
+  try {
+    const hfUrl = "https://api-inference.huggingface.co/models/openai/whisper-small";
+    const hfResp = await fetch(hfUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_API_KEY}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: Buffer.from(audioBase64, 'base64'),
+    });
+    if (!hfResp.ok) {
+      const text = await hfResp.text().catch(() => "");
+      console.error("Whisper error details:", hfResp.status, text);
+      return res.status(hfResp.status).json({ error: text || "Whisper API error" });
+    }
+    const data = await hfResp.json();
+    const transcript = data.text || "No transcript generated.";
+    return res.json({ transcript });
+  } catch (err) {
+    console.error("Error calling Whisper API:", err);
+    return res.status(500).json({ error: err?.message || "Upstream error" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
-  console.log(`Only /api/ask endpoint active (clean and simple)`);
+  console.log(`Proxy server listening on port ${PORT}`);
+  if (EXTENSION_ID) {
+    console.log(`Allowed extension origin: chrome-extension://${EXTENSION_ID}`);
+  } else {
+    console.log(
+      "No EXTENSION_ID set; using permissive CORS in non-production."
+    );
+  }
 });
