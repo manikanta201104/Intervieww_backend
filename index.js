@@ -110,7 +110,7 @@ app.post("/api/transcribe", async (req, res) => {
   }
   try {
     const hfUrl =
-      "https://router.huggingface.co/hf-inference/models/openai/whisper-small";
+      "https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3";
     const payload = Buffer.from(audioBase64, "base64");
 
     let hfResp = null;
