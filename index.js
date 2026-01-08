@@ -102,22 +102,43 @@ app.post("/api/transcribe", async (req, res) => {
   }
   try {
     const hfUrl =
-      "https://api-inference.huggingface.co/models/openai/whisper-small";
-    const hfResp = await fetch(hfUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${HF_API_KEY}`,
-        "Content-Type": mimeType || "application/octet-stream",
-      },
-      body: Buffer.from(audioBase64, "base64"),
-    });
-    if (!hfResp.ok) {
-      const text = await hfResp.text().catch(() => "");
-      console.error("Whisper error details:", hfResp.status, text);
-      return res
-        .status(hfResp.status)
-        .json({ error: text || "Whisper API error" });
+      "https://router.huggingface.co/hf-inference/models/openai/whisper-small";
+    const payload = Buffer.from(audioBase64, "base64");
+
+    let hfResp = null;
+    let lastText = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      hfResp = await fetch(hfUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${HF_API_KEY}`,
+          "Content-Type": mimeType || "application/octet-stream",
+          Accept: "application/json",
+        },
+        body: payload,
+      });
+
+      if (hfResp.ok) break;
+
+      lastText = await hfResp.text().catch(() => "");
+      const status = hfResp.status;
+
+      // HF sometimes returns model-loading errors as 503 or 504.
+      if ((status === 503 || status === 504) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      break;
     }
+
+    if (!hfResp || !hfResp.ok) {
+      const status = hfResp?.status || 500;
+      console.error("Whisper error details:", status, lastText);
+      return res
+        .status(status)
+        .json({ error: lastText || "Whisper API error" });
+    }
+
     const data = await hfResp.json();
     const transcript = data.text || "No transcript generated.";
     return res.json({ transcript });
