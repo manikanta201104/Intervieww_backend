@@ -37,6 +37,14 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "25mb" }));
 
+app.get("/", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.get("/api/routes", (req, res) => {
+  res.json({ routes: ["/health", "/api/ask", "/api/transcribe"] });
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
