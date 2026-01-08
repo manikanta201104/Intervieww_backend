@@ -35,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "25mb" }));
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -93,7 +93,7 @@ app.post("/api/ask", async (req, res) => {
 
 // /api/transcribe for remote audio
 app.post("/api/transcribe", async (req, res) => {
-  const { audioBase64 } = req.body || {};
+  const { audioBase64, mimeType } = req.body || {};
   if (!audioBase64 || typeof audioBase64 !== "string") {
     return res.status(400).json({ error: "No audioBase64 provided." });
   }
@@ -101,19 +101,22 @@ app.post("/api/transcribe", async (req, res) => {
     return res.status(500).json({ error: "HF_API_KEY not configured." });
   }
   try {
-    const hfUrl = "https://api-inference.huggingface.co/models/openai/whisper-small";
+    const hfUrl =
+      "https://api-inference.huggingface.co/models/openai/whisper-small";
     const hfResp = await fetch(hfUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${HF_API_KEY}`,
-        "Content-Type": "application/octet-stream",
+        "Content-Type": mimeType || "application/octet-stream",
       },
-      body: Buffer.from(audioBase64, 'base64'),
+      body: Buffer.from(audioBase64, "base64"),
     });
     if (!hfResp.ok) {
       const text = await hfResp.text().catch(() => "");
       console.error("Whisper error details:", hfResp.status, text);
-      return res.status(hfResp.status).json({ error: text || "Whisper API error" });
+      return res
+        .status(hfResp.status)
+        .json({ error: text || "Whisper API error" });
     }
     const data = await hfResp.json();
     const transcript = data.text || "No transcript generated.";
